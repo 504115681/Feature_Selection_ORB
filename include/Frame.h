@@ -21,7 +21,7 @@
 #ifndef FRAME_H
 #define FRAME_H
 
-#include<vector>
+#include <vector>
 
 #include "MapPoint.h"
 #include "Thirdparty/DBoW2/DBoW2/BowVector.h"
@@ -32,13 +32,92 @@
 
 #include <opencv2/opencv.hpp>
 
+// NOTE
+// as an alternative of stereo pipeline, undistort the keypoints and perform stereo matching
+// no image recitification is required, nor does the subpixel stereo refine is used
+#define ALTER_STEREO_MATCHING
+// only uncomment it for stereo pipeline
+#define DELAYED_STEREO_MATCHING
+
+// For fisheye collected sequences such as TUM VI & MYNT
+// #define USE_FISHEYE_DISTORTION
+
+// Reduction of disparity search range for map-matched points
+#define DISPARITY_THRES     50.0
+
+
+// For map reuse and update
+// #define ENABLE_MAP_IO
+
+
+// For anticipation in good graph
+#define ENABLE_ANTICIPATION_IN_GRAPH
+
+
+#ifdef ENABLE_ANTICIPATION_IN_GRAPH
+
+    // adjust the budget of local BA with anticipation info. on-the-fly
+    #define ENABLE_ANTICIPATION_IN_BUDGET
+    // number of historical budget for online cost estimation
+    #define NUM_HISTORICAL_BUDGET   1 // 3 // 20 //
+
+    // number of virtual KF to be included in good graph
+    #define VIRTUAL_FRAME_NUM       1 // 2 //
+    // number of regular frames between virtual KF
+    // for EuRoC (20 fps)
+    // #define VIRTUAL_FRAME_STEP      10 // 5 //
+    // for Gazebo (30 fps)
+    #define VIRTUAL_FRAME_STEP      15
+
+    // #define ENABLE_PERTURBATION_TO_ODOM
+    // level of gaussian noise added to ground truth anticipation
+    #define ANTICIPATION_NOISE_TRAN_STD     0.0018 // 0.0035  // m per frame
+    #define ANTICIPATION_NOISE_ROTA_STD     0.0008 // 0.0015  // rad per frame
+
+#endif
+
+
+
 namespace ORB_SLAM2
 {
-#define FRAME_GRID_ROWS 48
+
+// NOTE
+// when enabling map-reusing, make sure the grids are configured 
+// indentically; changing grid configurations will lead to segfault 
+// when trying to search 2D projection of 3D map points
+
+// Optmized for 480 * 640, e.g. Hololens
+//#define FRAME_GRID_COLS 48
+//#define FRAME_GRID_ROWS 64
+
+// Optmized for 640 * 480, e.g. TUM RGBD & NUIM & EuRoC
 #define FRAME_GRID_COLS 64
+#define FRAME_GRID_ROWS 48
+
+// Optimzied for 512 * 512, e.g. TUM VI
+//#define FRAME_GRID_COLS 64
+//#define FRAME_GRID_ROWS 64
+
+  
+/* --- options of query descriptor sampling --- */
+#define BUCKET_WIDTH                	50
+#define BUCKET_HEIGHT               	50
+#define BUCKET_MIN_FEATURES_PER_GRID    1
+
 
 class MapPoint;
 class KeyFrame;
+
+struct Grid
+{
+    Grid()
+    {
+        matched_size = 0;
+        kp_unmatched_indices.clear();
+    }
+    unsigned int matched_size;
+    std::vector<unsigned int> kp_unmatched_indices;
+};
 
 class Frame
 {
@@ -48,23 +127,80 @@ public:
     // Copy constructor.
     Frame(const Frame &frame);
 
+    // Modified constructor for stereo cameras with stereo matching postponed
+    Frame(const cv::Mat &imLeft, const cv::Mat &imRight, const double &timeStamp,
+          ORBextractor* extractorLeft, ORBextractor* extractorRight, ORBVocabulary* voc, cv::Mat &K,
+          cv::Mat &K_left, cv::Mat &distCoef_left, cv::Mat &R_left, cv::Mat &P_left,
+          cv::Mat &K_right, cv::Mat &distCoef_right, cv::Mat &R_right, cv::Mat &P_right,
+          const float &bf, const float &thDepth);
+
+    // Modified constructor for lazy-stereo, as well as detection data I/O
+    Frame(const cv::Mat &imLeft, const cv::Mat &imRight, const double &timeStamp,
+          ORBextractor *extractorLeft, ORBextractor *extractorRight, ORBVocabulary *voc, cv::Mat &K,
+          cv::Mat &K_left, cv::Mat &distCoef_left, cv::Mat &R_left, cv::Mat &P_left,
+          cv::Mat &K_right, cv::Mat &distCoef_right, cv::Mat &R_right, cv::Mat &P_right,
+          const float &bf, const float &thDepth,
+          const std::vector<cv::KeyPoint> &vKeys_left,
+          const std::vector<cv::KeyPoint> &vKeys_right,
+          const cv::Mat &mDisc_left, const cv::Mat &mDisc_right);
+
     // Constructor for stereo cameras.
-    Frame(const cv::Mat &imLeft, const cv::Mat &imRight, const double &timeStamp, ORBextractor* extractorLeft, ORBextractor* extractorRight, ORBVocabulary* voc, cv::Mat &K, cv::Mat &distCoef, const float &bf, const float &thDepth);
+    Frame(const cv::Mat &imLeft, const cv::Mat &imRight, const double &timeStamp,
+          ORBextractor* extractorLeft, ORBextractor* extractorRight, ORBVocabulary* voc, cv::Mat &K,
+          cv::Mat &distCoef, const float &bf, const float &thDepth);
 
     // Constructor for RGB-D cameras.
-    Frame(const cv::Mat &imGray, const cv::Mat &imDepth, const double &timeStamp, ORBextractor* extractor,ORBVocabulary* voc, cv::Mat &K, cv::Mat &distCoef, const float &bf, const float &thDepth);
+    Frame(const cv::Mat &imGray, const cv::Mat &imDepth, const double &timeStamp,
+          ORBextractor* extractor, ORBVocabulary* voc, cv::Mat &K,
+          cv::Mat &distCoef, const float &bf, const float &thDepth);
 
     // Constructor for Monocular cameras.
-    Frame(const cv::Mat &imGray, const double &timeStamp, ORBextractor* extractor,ORBVocabulary* voc, cv::Mat &K, cv::Mat &distCoef, const float &bf, const float &thDepth);
+    Frame(const cv::Mat &imGray, const double &timeStamp,
+          ORBextractor* extractor, ORBVocabulary* voc, cv::Mat &K,
+          cv::Mat &distCoef, const float &bf, const float &thDepth);
+
+    ~Frame() {};
 
     // Extract ORB on the image. 0 for left image and 1 for right image.
     void ExtractORB(int flag, const cv::Mat &im);
+
+    // Export detection results to YAML, which is easy to interpret and load
+    void ExportToYML(cv::FileStorage &fs);
 
     // Compute Bag of Words representation.
     void ComputeBoW();
 
     // Set the camera pose.
     void SetPose(cv::Mat Tcw);
+
+
+    cv::Mat getTwc();
+
+
+    // return false if invalid or invisible
+    inline bool WorldToCameraPoint(const cv::Mat Pw, cv::Mat & Pc){
+
+        // 3D in camera coordinates
+        Pc = mRcw*Pw+mtcw;
+
+        //        cout << "Pc = " << Pc.at<float>(0) << ", " << Pc.at<float>(1) << ", " << Pc.at<float>(2) << endl;
+
+        if (Pc.at<float>(2) <= 0.0f)
+            return false;
+
+        return true;
+    }
+
+
+    // ================================ DEBUG func ================================
+
+    void plotStereoDetection(const cv::Mat &imLeft, const cv::Mat &imRight,
+                             cv::Mat &imRes);
+
+    void plotStereoMatching(const cv::Mat &imLeft, const cv::Mat &imRight,
+                            cv::Mat &imRes);
+
+    //
 
     // Computes rotation, translation and camera center matrices from the camera pose.
     void UpdatePoseMatrices();
@@ -92,6 +228,49 @@ public:
     // If there is a match, depth is computed and the right coordinate associated to the left keypoint is stored.
     void ComputeStereoMatches();
 
+    //    void ComputeStereoMatches_Undistorted();
+    inline void PrepareStereoCandidates() {
+
+        mvuRight = vector<float>(N,-1.0f);
+        mvDepth = vector<float>(N,-1.0f);
+
+        mvStereoMatched = vector<bool>(N,false);
+
+        const int nRows = mpORBextractorLeft->mvImagePyramid[0].rows;
+
+        //Assign keypoints to row table
+        mvRowIndices = vector<vector<size_t> >(nRows,vector<size_t>());
+
+        for(int i=0; i<nRows; i++)
+            mvRowIndices[i].reserve(200);
+
+        const int Nr = mvKeysRightUn.size();
+
+        for(int iR=0; iR<Nr; iR++)
+        {
+            const cv::KeyPoint &kp = mvKeysRightUn[iR];
+            const float &kpY = kp.pt.y;
+
+            const float r = 2.0f*mvScaleFactors[mvKeysRightUn[iR].octave];
+            const int maxr = std::min(float(nRows-1), ceil(kpY+r));
+            const int minr = std::max(0.0f, floor(kpY-r));
+
+            for(int yi=minr;yi<=maxr;yi++)
+                mvRowIndices[yi].push_back(iR);
+        }
+
+        // For each left keypoint search a match in the right image
+        mvDistIdx.reserve(N);
+        mvDistIdx.clear();
+    }
+
+    bool ComputeStereoMatch_OnePoint(const int iL, const int thOrbDist, const float minD, const float maxD);
+
+    int ComputeStereoMatches_Undistorted(bool isOnline = false);
+
+    int ComputeStereoMatches_Undistorted_ByBucketing(bool isOnline = false);
+    static void GetUnMatchedKPbyBucketing(const Frame *pFrame, std::vector<unsigned int> &vUnMatchedKeyPoints);
+
     // Associate a "right" coordinate to a keypoint if there is valid depth in the depthmap.
     void ComputeStereoFromRGBD(const cv::Mat &imDepth);
 
@@ -116,7 +295,18 @@ public:
     static float cy;
     static float invfx;
     static float invfy;
+
+    // for left cam undistort
+    cv::Mat mK_ori;
     cv::Mat mDistCoef;
+    cv::Mat mR;
+    cv::Mat mP;
+
+    // for right cam undistort
+    cv::Mat mK_right;
+    cv::Mat mDistCoef_right;
+    cv::Mat mR_right;
+    cv::Mat mP_right;
 
     // Stereo baseline multiplied by fx.
     float mbf;
@@ -136,11 +326,20 @@ public:
     // In the RGB-D case, RGB images can be distorted.
     std::vector<cv::KeyPoint> mvKeys, mvKeysRight;
     std::vector<cv::KeyPoint> mvKeysUn;
+    std::vector<cv::KeyPoint> mvKeysRightUn;
 
     // Corresponding stereo coordinate and depth for each keypoint.
     // "Monocular" keypoints have a negative value.
     std::vector<float> mvuRight;
     std::vector<float> mvDepth;
+
+    //
+    std::vector<bool> mvStereoMatched;
+    vector<vector<size_t> > mvRowIndices;
+
+    //
+    vector<pair<int, int> > mvDistIdx;
+
 
     // Bag of Words Vector structures.
     DBoW2::BowVector mBowVec;
@@ -151,9 +350,20 @@ public:
 
     // MapPoints associated to keypoints, NULL pointer if no association.
     std::vector<MapPoint*> mvpMapPoints;
-
+    //
+    std::vector<int> mvpMatchScore;
+    
     // Flag to identify outlier associations.
     std::vector<bool> mvbOutlier;
+
+    std::vector<bool> mvbCandidate;
+
+  //  std::vector<bool> mvbJacobBuilt;
+
+    //
+    std::vector<bool> mvbGoodFeature;
+
+    //
 
     // Keypoints are assigned to cells in a grid to reduce matching complexity when projecting MapPoints.
     static float mfGridElementWidthInv;
@@ -195,8 +405,12 @@ private:
     // (called in the constructor).
     void UndistortKeyPoints();
 
+    void UndistortKeyPointsStereo();
+
     // Computes image bounds for the undistorted image (called in the constructor).
     void ComputeImageBounds(const cv::Mat &imLeft);
+
+    void ComputeImageBoundsStereo(const cv::Mat &imLeft);
 
     // Assign keypoints to the grid for speed up feature matching (called in the constructor).
     void AssignFeaturesToGrid();
@@ -208,6 +422,6 @@ private:
     cv::Mat mOw; //==mtwc
 };
 
-}// namespace ORB_SLAM
+} // namespace ORB_SLAM2
 
 #endif // FRAME_H

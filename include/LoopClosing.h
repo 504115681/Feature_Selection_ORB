@@ -33,6 +33,10 @@
 #include <mutex>
 #include "Thirdparty/g2o/g2o/types/types_seven_dof_expmap.h"
 
+// #define DISABLE_LOOP_CLOSURE
+
+#define LOOPCLOSURE_TEMPORAL_CONSTRAINT 60 //second
+
 namespace ORB_SLAM2
 {
 
@@ -80,9 +84,12 @@ public:
 
     bool isFinished();
 
+    void SetNeedLoop(bool flag);
+
     EIGEN_MAKE_ALIGNED_OPERATOR_NEW
 
 protected:
+    bool NeedLoop();
 
     bool CheckNewKeyFrames();
 
@@ -144,8 +151,10 @@ protected:
 
 
     bool mnFullBAIdx;
+
+    double mdPreviousTimeStamp;
 };
 
-} //namespace ORB_SLAM
+} // namespace ORB_SLAM2
 
 #endif // LOOPCLOSING_H

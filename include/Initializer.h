@@ -20,10 +20,17 @@
 #ifndef INITIALIZER_H
 #define INITIALIZER_H
 
-#include<opencv2/opencv.hpp>
+#include <opencv2/opencv.hpp>
 #include "Frame.h"
 
-
+// param used in initializations
+// default
+#define THRES_INIT_MPT_NUM          100 // 80 //
+#define SRH_WINDOW_SIZE_INIT        100
+// for xwing
+//   #define THRES_INIT_MPT_NUM          50 //
+//   #define SRH_WINDOW_SIZE_INIT        200
+    
 namespace ORB_SLAM2
 {
 
@@ -66,8 +73,8 @@ private:
     void Normalize(const vector<cv::KeyPoint> &vKeys, vector<cv::Point2f> &vNormalizedPoints, cv::Mat &T);
 
     int CheckRT(const cv::Mat &R, const cv::Mat &t, const vector<cv::KeyPoint> &vKeys1, const vector<cv::KeyPoint> &vKeys2,
-                       const vector<Match> &vMatches12, vector<bool> &vbInliers,
-                       const cv::Mat &K, vector<cv::Point3f> &vP3D, float th2, vector<bool> &vbGood, float &parallax);
+		      const vector<Match> &vMatches12, vector<bool> &vbInliers,
+		      const cv::Mat &K, vector<cv::Point3f> &vP3D, float th2, vector<bool> &vbGood, float &parallax);
 
     void DecomposeE(const cv::Mat &E, cv::Mat &R1, cv::Mat &R2, cv::Mat &t);
 

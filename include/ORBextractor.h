@@ -25,6 +25,36 @@
 #include <list>
 #include <opencv/cv.h>
 
+#if !defined(__SSE3__) && !defined(__SSE2__) && !defined(__SSE1__)
+    #include "SSE2NEON.h"
+#endif
+
+// NOTE
+// for some reason the cuda fast only works on QVGA video;
+// with higher resolution inout, it will only extract fast 
+// from the top portion of the frame
+// use GPU to speed up FAST detection (you can only choose one of the two macros!)
+// #define CUDA_ACC_FAST
+
+// optimized for NEON in FAST detection (you can only choose one of the two macros!)
+// #define NEON_ACC_FAST
+
+#ifdef CUDA_ACC_FAST
+    #include <opencv2/core/cuda.hpp>
+    #include <opencv2/cudafilters.hpp>
+    #include <opencv2/cudafeatures2d.hpp>
+    #include <opencv2/cudawarping.hpp>
+    #include <opencv2/cudaarithm.hpp>
+    #include <cuda/Allocator.hpp>
+    #include <cuda/Fast.hpp>
+    #include <cuda/Orb.hpp>
+    #include "Util_cuda.hpp"
+#endif
+
+#ifdef NEON_ACC_FAST
+    #include "FAST_NEON.h"
+#endif
+
 
 namespace ORB_SLAM2
 {
@@ -57,14 +87,20 @@ public:
     // ORB are dispersed on the image using an octree.
     // Mask is ignored in the current implementation.
     void operator()( cv::InputArray image, cv::InputArray mask,
-      std::vector<cv::KeyPoint>& keypoints,
-      cv::OutputArray descriptors);
+                     std::vector<cv::KeyPoint>& keypoints,
+                     cv::OutputArray descriptors);
 
     int inline GetLevels(){
         return nlevels;}
 
     float inline GetScaleFactor(){
         return scaleFactor;}
+
+    int inline GetInitThres(){
+        return iniThFAST;}
+
+    int inline GetMinThres(){
+        return minThFAST;}
 
     std::vector<float> inline GetScaleFactors(){
         return mvScaleFactor;
@@ -82,17 +118,36 @@ public:
         return mvInvLevelSigma2;
     }
 
+#ifdef CUDA_ACC_FAST
+    // I assume all frames are of the same dimension
+    bool mvImagePyramidAllocatedFlag;
+    std::vector<cv::cuda::GpuMat>  mvImagePyramid;
+    std::vector<cv::cuda::GpuMat>  mvImagePyramidBorder;
+#else
     std::vector<cv::Mat> mvImagePyramid;
+#endif
+
+    // NOTE
+    // move to public member function for keypoint I/O
+    void ComputePyramid(cv::Mat image);
 
 protected:
 
-    void ComputePyramid(cv::Mat image);
-    void ComputeKeyPointsOctTree(std::vector<std::vector<cv::KeyPoint> >& allKeypoints);    
+    // void ComputePyramid(cv::Mat image);
+    void ComputeKeyPointsOctTree(std::vector<std::vector<cv::KeyPoint> >& allKeypoints);
     std::vector<cv::KeyPoint> DistributeOctTree(const std::vector<cv::KeyPoint>& vToDistributeKeys, const int &minX,
-                                           const int &maxX, const int &minY, const int &maxY, const int &nFeatures, const int &level);
+                                                const int &maxX, const int &minY, const int &maxY, const int &nFeatures, const int &level);
 
     void ComputeKeyPointsOld(std::vector<std::vector<cv::KeyPoint> >& allKeypoints);
     std::vector<cv::Point> pattern;
+
+#ifdef CUDA_ACC_FAST
+    cv::Ptr<cv::cuda::Filter> mpGaussianFilter;
+    cuda::Stream mcvStream;
+    cuda::GpuFast gpuFast;
+    cuda::IC_Angle ic_angle;
+    cuda::GpuOrb gpuOrb;
+#endif
 
     int nfeatures;
     double scaleFactor;
@@ -105,12 +160,12 @@ protected:
     std::vector<int> umax;
 
     std::vector<float> mvScaleFactor;
-    std::vector<float> mvInvScaleFactor;    
+    std::vector<float> mvInvScaleFactor;
     std::vector<float> mvLevelSigma2;
     std::vector<float> mvInvLevelSigma2;
 };
 
-} //namespace ORB_SLAM
+} // namespace ORB_SLAM2
 
 #endif
 

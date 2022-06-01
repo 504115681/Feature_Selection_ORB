@@ -21,12 +21,16 @@
 #ifndef MAPPOINT_H
 #define MAPPOINT_H
 
-#include"KeyFrame.h"
-#include"Frame.h"
-#include"Map.h"
+#include "KeyFrame.h"
+#include "Frame.h"
+#include "Map.h"
+#include "Hashing.h"
 
-#include<opencv2/core/core.hpp>
-#include<mutex>
+#define ARMA_NO_DEBUG
+#include "armadillo"
+
+#include <opencv2/core/core.hpp>
+#include <mutex>
 
 namespace ORB_SLAM2
 {
@@ -42,11 +46,25 @@ public:
     MapPoint(const cv::Mat &Pos, KeyFrame* pRefKF, Map* pMap);
     MapPoint(const cv::Mat &Pos,  Map* pMap, Frame* pFrame, const int &idxF);
 
+    MapPoint(cv::FileStorage & fs, Map *pMap);
+
+    void ExportToYML(cv::FileStorage & fs);
+
+    static bool isLessID(MapPoint* pMP1, MapPoint* pMP2){
+        return pMP1->mnId < pMP2->mnId;
+    }
+
+    // for unit test only; not used in actual application
+    MapPoint() {};
+
     void SetWorldPos(const cv::Mat &Pos);
     cv::Mat GetWorldPos();
 
     cv::Mat GetNormal();
     KeyFrame* GetReferenceKeyFrame();
+
+    //
+    void SetReferenceKeyFrame(KeyFrame * mRKF);
 
     std::map<KeyFrame*,size_t> GetObservations();
     int Observations();
@@ -99,6 +117,7 @@ public:
     long unsigned int mnLastFrameSeen;
 
     // Variables used by local mapping
+    long unsigned int mnBALocalForKFCand;
     long unsigned int mnBALocalForKF;
     long unsigned int mnFuseCandidateForKF;
 
@@ -109,8 +128,42 @@ public:
     cv::Mat mPosGBA;
     long unsigned int mnBAGlobalForKF;
 
+    // XXX: Changed from protected to public!
+    // Tracking counters
+    int mnVisible;
+    int mnFound;
+
+    std::vector<size_t> mvMatchCandidates;
+
+    // Observability
+    arma::mat H_meas;
+    arma::mat H_proj;
+    arma::mat ObsMat;
+    arma::vec ObsVector;
+    double ObsScore;
+    int ObsRank;
+    //
+    float u_proj, v_proj;
+    //
+    long unsigned int matchedAtFrameId;
+    long unsigned int updateAtFrameId;
+    long unsigned int goodAtFrameId;
+    long unsigned int mnUsedForLocalMap;
 
     static std::mutex mGlobalMutex;
+
+
+    long unsigned int mnIdCoVisible;
+    long unsigned int mnIdMapHashed;
+    long unsigned int mnIdSelected;
+    long unsigned int mnIdRelocalized;
+    long unsigned int mnIdLoopClosure;
+    std::vector<bool> mvbActiveHashTables;
+    std::vector<bool> mvbHashed;
+//    std::vector<bool> mvbQueried;
+    int mnIdCandidates;
+    int mnQueriedScore;
+//    bool queriedByHashing;
 
 protected:    
 
@@ -129,9 +182,9 @@ protected:
      // Reference KeyFrame
      KeyFrame* mpRefKF;
 
-     // Tracking counters
-     int mnVisible;
-     int mnFound;
+   //  // Tracking counters
+   //  int mnVisible;
+   //  int mnFound;
 
      // Bad flag (we do not currently erase MapPoint from memory)
      bool mbBad;

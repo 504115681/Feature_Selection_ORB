@@ -26,8 +26,15 @@
 #include "LoopClosing.h"
 #include "Tracking.h"
 #include "KeyFrameDatabase.h"
+#include "Hashing.h"
+#include "Util.hpp"
 
 #include <mutex>
+
+
+//#define LOGGING_KF_LIST
+
+#define LOCAL_BA_TIME_LOGGING
 
 
 namespace ORB_SLAM2
@@ -37,13 +44,28 @@ class Tracking;
 class LoopClosing;
 class Map;
 
+struct BudgetPredictParam {
+    double budget_per_frame;
+    double coe_a, coe_b, coe_c, coe_d;
+    //
+    std::vector<double> match_ratio_log;
+    size_t              match_ratio_idx;
+    //
+    double              avg_match_num;
+    //    double              visible_mpt_num;
+};
+
 class LocalMapping
 {
 public:
     LocalMapping(Map* pMap, const float bMonocular);
 
-    void SetLoopCloser(LoopClosing* pLoopCloser);
+    ~LocalMapping() {
+        f_realTimeBA.close();
+    }
 
+    void SetLoopCloser(LoopClosing* pLoopCloser);
+    void SetHashHandler(HASHING::MultiIndexHashing* pHashHandler);
     void SetTracker(Tracking* pTracker);
 
     // Main function
@@ -72,7 +94,34 @@ public:
         return mlNewKeyFrames.size();
     }
 
+    // void SetNeedUpdateHashTables(bool flag);
+
+    bool NeedUpdateHashTables();
+
+    void UpdateHashTables(std::vector<MapPoint*>& vpMPs);
+
+#ifdef LOGGING_KF_LIST
+    void SetRealTimeFileStream(string fNameRealTimeBA);
+#endif
+
+    // Time log
+    std::vector<MappingLog> mvBATimeLog;
+    MappingLog logCurrentKeyFrame;
+
+#ifdef ENABLE_ANTICIPATION_IN_BUDGET
+    // Historical data for online budget estimation
+    //    std::queue<std::pair<double, double>> mqBudgetHistory;
+    //    Eigen::Matrix<double, NUM_HISTORICAL_BUDGET, 4> mKFNumMat;
+    //    Eigen::Matrix<double, NUM_HISTORICAL_BUDGET, 1> mBudgetMat;
+    size_t mRunningRow;
+    bool   mbFullyLoaded;
+#endif
+    //
+    BudgetPredictParam mParam;
+
 protected:
+    //    void UpdateHashTables(std::vector<MapPoint*>& vpMPs);
+    //    void UpdateHashTables(std::list<MapPoint*>& vpMPs);
 
     bool CheckNewKeyFrames();
     void ProcessNewKeyFrame();
@@ -99,16 +148,27 @@ protected:
     bool mbFinished;
     std::mutex mMutexFinish;
 
+#ifdef LOGGING_KF_LIST
+    vector<size_t> mvKeyFrameList;
+    vector<size_t> mvFixedFrameList;
+#endif
+
+    arma::wall_clock timer;
+
+    std::ofstream f_realTimeBA;
+
     Map* mpMap;
 
     LoopClosing* mpLoopCloser;
     Tracking* mpTracker;
+    HASHING::MultiIndexHashing* mpHashMethod;
 
     std::list<KeyFrame*> mlNewKeyFrames;
 
     KeyFrame* mpCurrentKeyFrame;
 
     std::list<MapPoint*> mlpRecentAddedMapPoints;
+    std::vector<MapPoint*> mvpNewAddedMapPoints;
 
     std::mutex mMutexNewKFs;
 
@@ -121,8 +181,9 @@ protected:
 
     bool mbAcceptKeyFrames;
     std::mutex mMutexAccept;
+    std::mutex mMutexUpdateHashTables;
 };
 
-} //namespace ORB_SLAM
+} // namespace ORB_SLAM2
 
 #endif // LOCALMAPPING_H
